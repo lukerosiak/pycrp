@@ -1,5 +1,17 @@
 Download and import OpenSecrets.org data into MySQL tables.
 
-Refactoring in progress. May be useful for reference in the meantime.
 
 By Luke Rosiak, released under GNU
+
+This python utility imports bulk data from the Center for Responsive Politics into a MySQL database, sparing the user the repetitious work of importing, naming fields and properly configuring tables. 
+
+It includes a few auxillary tables and fields not part of CRP's official bulk download, but does not harness Personal Financial Disclosures. When you run this script repeatedly, it will check the updated dates and only re-download if the data has been modified. Even so, you are encouraged to download bulk files, which can be quite large, at non-peak-traffic times. Because some table schemas have changed over cycles, the utility has been tested only for recent cycles: 2008 and 2010. 
+
+Register for a 'MyOpenSecrets' account at opensecrets.org. Create a mysql database on your computer and provide the host, user, password and database name. Set these in credentials.py. Then run python download.py.
+
+You can specify cycles or sections to download as arguments:
+python download.py 12
+python download.py campfin expends 10 
+python download.py lobby
+
+Windows users can connect to this database in Microsoft Access if you prefer by setting up an ODBC connection. (Start-Control Panel-Administrative Tools-Data Sources (ODBC)). After you've set up an ODBC connection using the MySQL ODBC Connector, go to the External Data tab in Access, click 'other' and 'ODBC,' and connect to the tables. 
