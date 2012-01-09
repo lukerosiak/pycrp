@@ -9,7 +9,6 @@ Windows users can connect to this database in Microsoft Access if you prefer by 
 Luke Rosiak
 """
 
-import MySQLdb
 import pyExcelerator
 import cookielib
 import csv
@@ -21,21 +20,15 @@ import sys
 import urllib, urllib2
 from BeautifulSoup import BeautifulSoup
 
-CYCLES = ["12",]
-
-from credentials import *
-
 
 
 class ExtrasDownloader(object):
     
-    def __init__(self, cycles, path=None):
+    def __init__(self,cursor,path,cycles):
         
-        self.path = path or os.path.abspath(os.path.dirname(__file__))
+        self.cursor = cursor
+        self.path = path
         self.cycles = cycles
-        self.db = MySQLdb.connect(host=MYSQL_HOST, user=MYSQL_USER, passwd=MYSQL_PASSWORD,db=MYSQL_DB)
-        self.cursor = self.db.cursor()
-        self.dest_path = 'raw'
         
  
     #these tables all come from the multi-paned Excel worksheet: categories, members, congcmtes, congcmte_posts
@@ -177,7 +170,7 @@ class ExtrasDownloader(object):
                         writerows(newmatrix,sheet_info[1])
 
 
-        parseExcelIDs(os.path.join(DEST_PATH,"CRP_IDs.xls"))
+        parseExcelIDs(os.path.join(self.path,"CRP_IDs.xls"))
 
         leadpacs = []
         r = re.compile( r'strID=C(\d+)">(.{5,50})</a>\s*</td>\s*<td>\s*<a href="/politicians/summary.php\?cid=N(\d{8})')
@@ -196,11 +189,6 @@ class ExtrasDownloader(object):
         writerows(leadpacs,"leadpacs")    
 
         
- 
-
-
-if __name__ == '__main__':
-    cycles = sys.argv[1:]
-    dl = ExtrasDownloader(cycles)
-    dl.createtables()
-    dl.populatetables()
+    def go(self):
+        self.createtables()
+        self.populatetables()

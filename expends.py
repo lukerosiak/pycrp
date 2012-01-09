@@ -1,23 +1,16 @@
 import sys
 import MySQLdb
-import pyExcelerator
-import cookielib
-import csv
-import datetime
 import logging
 import os
-import re
-import urllib, urllib2
 
-from credentials import *
 
 class ExpendsDownloader(object):
     
-    def __init__(self, cycles=CYCLES):
-        self.CYCLES = cycles
-        self.db = MySQLdb.connect(host=MYSQL_HOST, user=MYSQL_USER, passwd=MYSQL_PASSWORD,db=MYSQL_DB)
-        self.cursor = self.db.cursor()
-        self.dest_path = 'raw'
+    def __init__(self,cursor,path,cycles):
+        
+        self.cursor = cursor
+        self.dest_path = path
+        self.cycles = cycles
         
 
     def createtables(self):
@@ -113,53 +106,14 @@ class ExpendsDownloader(object):
 
 
     def populatetables(self):
-
-        def writerowsfromcsv(infile, table):
-            def linereader(path):
-                infile = open(path, 'rU')
-                for line in infile:
-                    line = unicode(line, 'ascii', 'ignore').replace('\n', '')
-                    yield line
-                infile.close()
-            
-            detailReader =  csv.reader(linereader(infile), quotechar='|')
-            writerows(detailReader, table)
-
-        def writerows(rows, table):
-
-            def reformatdate(date):
-                return date[6:] + '-' + date[:2] + '-' + date[3:5]
-
-            logging.info("Writing " + table)
-            for row in rows:
-                if len(row)>0:
-                    row[9] = reformatdate(row[9])
-
-                    sql = "INSERT INTO crp_" + table + " VALUES ("
-                    for f in row:
-                        f = f.decode('iso8859-1').encode('utf-8','ignore').strip()
-                        sql = sql+' %s,'
-                    sql = sql[:-1]+");"
-                    try:
-                        self.cursor.execute(sql,row) 
-                    except:
-                        logging.info( "This FAILED:" + sql + str(row) )
-                        pass
-
  
         ext = ".txt"
         for year in self.CYCLES:
             query = "DELETE FROM crp_expends WHERE cycle='20%s';" %year
             self.cursor.execute(query)
-            writerowsfromcsv( os.path.join(self.dest_path, "expends" + year + ext), "expends")
+            self.cursor.execute("LOAD DATA LOCAL INFILE '%s' INTO TABLE crp_expends  FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '|' (Cycle,recordnum,TransID,CRPFilerid,recipcode,pacshort,CRPRecipName,ExpCode,Amount,@Date_orig,City,State,Zip,CmteID_EF,CandID,Type,Descrip ,PG,ElecOther,EntType,Source) SET Date = STR_TO_DATE(@Date_orig, '%m/%d/%Y')" % ( os.path.join(self.dest_path, "expends" + year + ext)))
 
 
-
-        
-
-
-if __name__ == '__main__':
-    cycles = sys.argv[1:]
-    dl = ExpendsDownloader(cycles)
-    dl.createtables()
-    dl.populatetables()
+    def go(self):
+        self.createtables()
+        self.populatetables()

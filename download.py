@@ -4,8 +4,21 @@ import datetime
 import logging
 import os
 import re
+import sys
 import urllib, urllib2
+import MySQLdb
 from optparse import make_option
+
+from credentials import *
+
+from campfin import CampFinDownloader
+from expends import ExpendsDownloader
+from lobby import LobbyDownloader
+from extras import ExtrasDownloader
+
+
+POSSIBLE_SECTIONS = ['campfin','expend','lobby','extras']
+cycle_re = re.compile(r"(20)?(\d{2})")
 
 LOGIN_URL = "http://www.opensecrets.org/MyOS/index.php"
 MYOSHOME_URL = "http://www.opensecrets.org/MyOS/home.php"
@@ -16,18 +29,19 @@ REQUEST_HEADERS = {
     "User-Agent": "CRPPYDWNLDR v1.0 ~ CRP Python Downloader",
 }
 
+
 META_FIELDS = ['filename','ext','description','filesize','updated','url']
 
 class CRPDownloader(object):
     
-    def __init__(self, email, password, path=None, cycles=['10',]):
+    def __init__(self,cycles,sections):
         
-        self.email = email
-        self.password = password
-        self.path = path or os.path.abspath(os.path.dirname(__file__))
+        self.email = CRP_EMAIL
+        self.password = CRP_PASSWORD
+        self.path = SRC_PATH
         self.cycles = cycles
         
-        self.to_update = []
+        self.sections = sections
         
         # setup opener
         self.opener = urllib2.build_opener(
@@ -36,28 +50,49 @@ class CRPDownloader(object):
             )
         )
         
+        if not os.path.exists(self.path):
+            os.system("mkdir %s" % self.path)
+        if not os.path.exists(DEST_PATH):
+            os.system("mkdir %s" % DEST_PATH)
+        
         self.meta = { }
         meta_path = os.path.join(self.path, 'meta.csv')
+        print meta_path
         if os.path.exists(meta_path):
+            print 'exists'
             meta_file = open(meta_path, 'r').read()
-            reader = csv.DictReader(meta_file.replace("\0", ""), fieldnames=META_FIELDS)
+            reader = csv.DictReader(meta_file, fieldnames=META_FIELDS)
+            print meta_file
             for record in reader:
                 self.meta[record['url']] = record
-            #meta_file.close()
+                
+        else:
+            logging.info("no existing meta file at %s" % meta_path)
+
     
-    def go(self, redownload=False):
-        self._bulk_download(self.get_resources(), redownload)
+    def go(self, sections, redownload=False):
+        resources = self.get_resources()
+        logging.info(resources)
+        self._bulk_download(resources, sections, redownload)
     
-    def _bulk_download(self, resources, redownload=False):
+    def _bulk_download(self, resources, sections, redownload=False):
         
         meta_file = open(os.path.join(self.path, 'meta.csv'), 'w+')
         meta = csv.DictWriter(meta_file, fieldnames=META_FIELDS)
+        
+        logging.info(self.meta)
         
         for res in resources:
             
             if not redownload and res['url'] in self.meta:
                 if res['updated'] == self.meta[res['url']]['updated']:
                     logging.info('ignoring %s.%s, local file is up to date' % (res['filename'], res['ext']))
+                    meta.writerow(self.meta[res['url']])
+                    continue
+                elif (res['filename']=='Lobby' and 'lobby' not in sections) or \
+                    (res['filename'].startswith('CampaignFin') and 'campfin' not in sections) or \
+                    (res['filename'].startswith('Expend') and 'expend' not in sections):
+                    logging.info('ignoring %s.%s, not specified for download' % (res['filename'], res['ext']))
                     meta.writerow(self.meta[res['url']])
                     continue
             
@@ -75,6 +110,9 @@ class CRPDownloader(object):
             
             meta.writerow(res)
         
+        
+            self.extract(file_path, DEST_PATH)
+                    
         meta_file.close()
         
     def get_resources(self):
@@ -106,14 +144,14 @@ class CRPDownloader(object):
         
         # PFD data range spreadsheet
         
-        resources.append({
+        """resources.append({
             'filename': 'CRP_PFDRangeData',
             'ext': 'xls',
             'description': 'PFD Range Data',
             'filesize': None,
             'updated': updated,
             'url': 'http://www.opensecrets.org/downloads/crp/CRP_PFDRangeData.xls',
-        })    
+        })    """
         
         # CRP category codes
         
@@ -139,3 +177,51 @@ class CRPDownloader(object):
         
         return resources
     
+    
+    def extract(self, filename, dest_path):
+        
+        (path,f) = os.path.split(filename)
+        if f.endswith('.zip'):
+            cmd = 'unzip -u %s -d %s' % (filename, dest_path)
+        else:
+            cmd = 'cp %s %s' % (filename, os.path.join(dest_path,f))
+                
+        logging.info( cmd )
+        os.system(cmd)
+
+
+
+
+if __name__ == '__main__':
+    cycles = []
+    sections = []
+
+    args = sys.argv[1:]
+    for arg in args:
+        arg = arg.lower()
+        if cycle_re.match(arg):
+            year = cycle_re.match(arg).groups()[1]
+            if year not in cycles: cycles.append(year)
+        elif arg in POSSIBLE_SECTIONS:
+            if arg not in sections: sections.append(arg)
+        
+    if not len(cycles): cycles = DEFAULT_CYCLES
+    if not len(sections): sections = POSSIBLE_SECTIONS
+    
+    logging.basicConfig(level=logging.DEBUG)
+    
+    #dl = CRPDownloader(cycles,sections)
+    #dl.go(sections)
+    
+    db = MySQLdb.connect(host=MYSQL_HOST, user=MYSQL_USER, passwd=MYSQL_PASSWORD,db=MYSQL_DB)
+    cursor = db.cursor()
+    
+    if 'campfin' in sections:
+        CampFinDownloader(cursor,DEST_PATH,cycles).go()
+    if 'expend' in sections:
+        ExpendsDownloader(cursor,DEST_PATH,cycles).go()
+    if 'lobby' in sections:
+        LobbyDownloader(cursor,DEST_PATH).go()
+    if 'extras' in sections:
+        ExtrasDownloader(cursor,DEST_PATH,cycles).go()
+

@@ -9,26 +9,21 @@ Windows users can connect to this database in Microsoft Access if you prefer by 
 Luke Rosiak
 """
 
-import MySQLdb
 import sys
 import csv
 import datetime
 import logging
 import os
 import re
-import urllib, urllib2
-
-from credentials import *
 
 
 class CampFinDownloader(object):
     
-    def __init__(self,cycles=CYCLES):
+    def __init__(self,cursor,path,cycles):
         
-        self.CYCLES = cycles
-        self.db = MySQLdb.connect(host=MYSQL_HOST, user=MYSQL_USER, passwd=MYSQL_PASSWORD,db=MYSQL_DB)
-        self.cursor = self.db.cursor()
-        self.dest_path = 'raw'
+        self.cursor = cursor
+        self.dest_path = path
+        self.cycles = cycles
 
 
     def createtables(self):
@@ -94,6 +89,7 @@ class CampFinDownloader(object):
                 lastname varchar(20),
                 first varchar(10),
                 first3 varchar(3),
+                fam varchar(1),
                 INDEX (Orgname),
                 PRIMARY KEY (Cycle, FECTransID)
                 );""",
@@ -138,7 +134,6 @@ class CampFinDownloader(object):
                 );"""
         ]
           
-        
         for query in queries:
             self.cursor.execute(query)
 
@@ -167,20 +162,15 @@ class CampFinDownloader(object):
                     cols = ''
                     if table=='indivs':
                         #split contrib and fam?
-                        cols = '(Cycle,FECTransID,ContribID,Contrib,RecipID,Orgname,UltOrg,RealCode,Date,Amount,street,City,State,Zip,Recipcode,Type,CmteID,OtherID,Gender,FECOccEmp,Microfilm ,Occ_EF,Emp_EF,Src,lastname,first,first3)'
+                        cols = '(Cycle,FECTransID,ContribID,Contrib,RecipID,Orgname,UltOrg,RealCode,Date,Amount,street,City,State,Zip,Recipcode,Type,CmteID,OtherID,Gender,FECOccEmp,Microfilm ,Occ_EF,Emp_EF,Src,lastname,first,first3,fam)'
                         lastname = row[3].split(', ')[0]
                         first = row[3][len(lastname)+2:]
                         row.append(lastname)
                         row.append(first)
                         row.append(first[:3])
+                        row.append(row[2][11:]) #family member identifier
+                        row[2] = row[2][:11]   #family identifier
                         row[8] = reformatdate(row[8])
-                    if table=='pacs':
-                        row[5] = reformatdate(row[5])
-                    if table=='pac_other':
-                        row[10] = reformatdate(row[10])
-                    if table=='expends':
-                        row[9] = reformatdate(row[9])
-
 
 
                     sql = "INSERT INTO crp_%s %s VALUES (" % (table, cols)
@@ -197,31 +187,26 @@ class CampFinDownloader(object):
 
 
         ext = ".txt"
-        for year in self.CYCLES:
-            self.cursor.execute("DELETE FROM crp_cmtes WHERE cycle='20%s'" % year)
-            writerowsfromcsv( os.path.join(self.dest_path, "cmtes" + year + ext), "cmtes")
+        for year in self.cycles:
+            """self.cursor.execute("DELETE FROM crp_cmtes WHERE cycle='20%s'" % year)
+            self.cursor.execute("LOAD DATA LOCAL INFILE '%s' INTO TABLE crp_cmtes FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '|'" % os.path.join(self.dest_path, "cmtes" + year + ext))
+            
             self.cursor.execute("DELETE FROM crp_cands WHERE cycle='20%s'" % year)
-            writerowsfromcsv( os.path.join(self.dest_path, "cands" + year + ext), "cands")
+            self.cursor.execute("LOAD DATA LOCAL INFILE '%s' INTO TABLE crp_cands FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '|'" % os.path.join(self.dest_path, "cands" + year + ext))
+            
             self.cursor.execute("DELETE FROM crp_indivs WHERE cycle='20%s'" % year)
-            writerowsfromcsv( os.path.join(self.dest_path, "indivs" + year + ext), "indivs")
+            writerowsfromcsv( os.path.join(self.dest_path, "indivs" + year + ext), "indivs")"""
+            
             self.cursor.execute("DELETE FROM crp_pacs WHERE cycle='20%s'" % year)
-            writerowsfromcsv( os.path.join(self.dest_path, "pacs" + year + ext), "pacs")
+            sql = "LOAD DATA LOCAL INFILE '" + os.path.join(self.dest_path, "pacs" + year + ext) + "' INTO TABLE crp_pacs  FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '|' (Cycle,FECRecNo,PACID,CID,Amount,@Date_orig,RealCode,Type,DI,FECCandID) SET Date = STR_TO_DATE(@Date_orig, '%m/%d/%Y')"
+            self.cursor.execute(sql)
+            
             self.cursor.execute("DELETE FROM crp_pac_other WHERE cycle='20%s'" % year)
-            writerowsfromcsv( os.path.join(self.dest_path, "pac_other" + year + ext), "pac_other")
-
- 
- 
- 
- 	            
-
- 
+            self.cursor.execute("LOAD DATA LOCAL INFILE '"+os.path.join(self.dest_path, "pac_other" + year + ext)+"' INTO TABLE crp_pac_other FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '|' (Cycle,FECRecNo,FilerID,DonorCmte,ContribLendTrans,City,State,Zip,FECOccEmp,PrimCode,@Date_orig,Amount,RecipID,Party,OtherID,RecipCode,RecipPrimcode,Amend,Report,PG,Microfilm,Type,Realcode,Source) SET Date = STR_TO_DATE(@Date_orig, '%m/%d/%Y')")
 
 
-if __name__ == '__main__':
-    cycles = sys.argv[1:]
-    dl = CampFinDownloader(cycles)
+    def go(self):
+        self.createtables()
+        self.populatetables()
 
-    dl.createtables()
-    dl.populatetables()
 
-  
